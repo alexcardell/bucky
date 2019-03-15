@@ -30,6 +30,11 @@ object Connection extends StrictLogging {
       connectionFactory.setAutomaticRecoveryEnabled(config.networkRecoveryInterval.isDefined)
       config.networkRecoveryInterval.map(_.toMillis.toInt).foreach(connectionFactory.setNetworkRecoveryInterval)
       config.virtualHost.foreach(connectionFactory.setVirtualHost)
+      config.heartbeatExecutorService.foreach(connectionFactory.setHeartbeatExecutor)
+      config.sharedExecutor.foreach(connectionFactory.setSharedExecutor)
+      config.topologyRecoveryExecutor.foreach(connectionFactory.setTopologyRecoveryExecutor)
+      config.shutdownExecutor.foreach(connectionFactory.setShutdownExecutor)
+      config.threadFactory.foreach(connectionFactory.setThreadFactory)
       connectionFactory.newConnection()
     } match {
       case Success(connection) =>

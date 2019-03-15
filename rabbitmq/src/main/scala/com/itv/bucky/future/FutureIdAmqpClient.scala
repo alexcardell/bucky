@@ -1,5 +1,7 @@
 package com.itv.bucky.future
 
+import java.util.concurrent.ScheduledExecutorService
+
 import com.itv.bucky.Monad.Id
 import com.itv.bucky._
 import com.rabbitmq.client.{Channel => RabbitChannel}
@@ -8,8 +10,8 @@ import scala.concurrent.ExecutionContext
 import scala.language.higherKinds
 import scala.util.Try
 
-case class FutureIdAmqpClient(channel: Id[RabbitChannel])(implicit executionContext: ExecutionContext)
-    extends FutureAmqpClient[Id](channel)(executionContext) {
+case class FutureIdAmqpClient(channel: Id[RabbitChannel], ses: ScheduledExecutorService)(implicit executionContext: ExecutionContext)
+    extends FutureAmqpClient[Id](channel, ses)(executionContext) {
 
   override implicit def monad: Monad[Id] = Monad.idMonad
 
@@ -22,13 +24,13 @@ case class FutureIdAmqpClient(channel: Id[RabbitChannel])(implicit executionCont
 object FutureIdAmqpClient {
   import Monad.toMonad
 
-  def apply(config: AmqpClientConfig)(implicit executionContext: ExecutionContext): Id[FutureIdAmqpClient] =
+  def apply(config: AmqpClientConfig, ses: ScheduledExecutorService)(implicit executionContext: ExecutionContext): Id[FutureIdAmqpClient] =
     Connection(config)
       .flatMap(
         Channel(_)
       )
       .flatMap(
-        FutureIdAmqpClient(_)
+        FutureIdAmqpClient(_, ses)
       )
 
 }

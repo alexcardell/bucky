@@ -1,5 +1,7 @@
 package com.itv.bucky.lifecycle
 
+import java.util.concurrent.{Executors, ScheduledExecutorService}
+
 import com.itv.bucky._
 import com.itv.bucky.decl.{Declaration, DeclarationExecutor}
 import com.itv.lifecycle.{Lifecycle, VanillaLifecycle}
@@ -10,7 +12,7 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.language.higherKinds
 import scala.concurrent.duration._
 
-case class AmqpClientLifecycle(config: AmqpClientConfig)(implicit executionContext: ExecutionContext)
+case class AmqpClientLifecycle(config: AmqpClientConfig, ses: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor)(implicit executionContext: ExecutionContext)
     extends Lifecycle[AmqpClient[Lifecycle, Future, Throwable, Unit]]
     with StrictLogging {
 
@@ -21,7 +23,7 @@ case class AmqpClientLifecycle(config: AmqpClientConfig)(implicit executionConte
   override def shutdown(instance: RabbitConnection): Unit = Connection.close(instance)
 
   override def unwrap(instance: RabbitConnection): AmqpClient[Lifecycle, Future, Throwable, Unit] =
-    new LifecycleRawAmqpClient(AmqpChannelLifecycle(instance))
+    new LifecycleRawAmqpClient(AmqpChannelLifecycle(instance), ses)
 }
 
 case class AmqpChannelLifecycle(connection: RabbitConnection)

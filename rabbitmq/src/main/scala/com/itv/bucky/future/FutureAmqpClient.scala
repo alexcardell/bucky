@@ -1,6 +1,6 @@
 package com.itv.bucky.future
 
-import java.util.concurrent.{Executors, TimeUnit}
+import java.util.concurrent.{ScheduledExecutorService, TimeUnit}
 
 import com.itv.bucky._
 import com.rabbitmq.client.{Channel => RabbitChannel}
@@ -11,7 +11,7 @@ import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.language.higherKinds
 import scala.util.{Failure, Success, Try}
 
-abstract class FutureAmqpClient[B[_]](channelFactory: B[RabbitChannel])(implicit executionContext: ExecutionContext)
+abstract class FutureAmqpClient[B[_]](channelFactory: B[RabbitChannel], ses: ScheduledExecutorService)(implicit executionContext: ExecutionContext)
     extends AmqpClient[B, Future, Throwable, Unit]
     with StrictLogging {
 
@@ -65,7 +65,7 @@ abstract class FutureAmqpClient[B[_]](channelFactory: B[RabbitChannel])(implicit
   private def publisherWrapperLifecycle(
       timeout: Duration): Publisher[Future, PublishCommand] => Publisher[Future, PublishCommand] = timeout match {
     case finiteTimeout: FiniteDuration =>
-      new FutureTimeoutPublisher(_, finiteTimeout)(Executors.newSingleThreadScheduledExecutor())
+      new FutureTimeoutPublisher(_, finiteTimeout)(ses)
     case _ => identity
   }
 }

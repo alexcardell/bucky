@@ -161,8 +161,8 @@ lazy val example = project
   .settings(name := "com.itv")
   .settings(moduleName := "bucky-example")
   .settings(kernelSettings: _*)
-  .aggregate(core, rabbitmq, scalaz, fs2, argonaut, circe)
-  .dependsOn(core, rabbitmq, scalaz, fs2, argonaut, circe)
+  .aggregate(core, rabbitmq, scalaz, fs2, argonaut, circe, kamon)
+  .dependsOn(core, rabbitmq, scalaz, fs2, argonaut, circe, kamon)
   .settings(
     libraryDependencies ++= Seq(
       "io.argonaut"                %% "argonaut"      % argonautVersion,
@@ -170,7 +170,9 @@ lazy val example = project
       "com.typesafe.scala-logging" %% "scala-logging" % scalaLoggingVersion,
       "org.apache.qpid"            % "qpid-broker"    % qpidVersion,
       "org.scalatest"              %% "scalatest"     % scalaTestVersion,
-      "com.typesafe"               % "config"         % typeSafeVersion
+      "com.typesafe"               % "config"         % typeSafeVersion,
+      "io.kamon" %% "kamon-jaeger" % "1.0.2",
+      "io.kamon" %% "kamon-executors" % "1.0.2"
     )
   )
 
@@ -301,8 +303,27 @@ lazy val fs2 = project
     )
   )
 
+lazy val kamon = project
+  .settings(name := "com.itv")
+  .settings(moduleName := "bucky-kamon")
+  .settings(kernelSettings: _*)
+  .aggregate(core, test, rabbitmq, fs2)
+  .dependsOn(core, rabbitmq, fs2, test % "test,it")
+  .configs(IntegrationTest)
+  .settings(Defaults.itSettings)
+  .settings(
+    internalDependencyClasspath in IntegrationTest += Attributed.blank((classDirectory in Test).value),
+    parallelExecution in IntegrationTest := false,
+    parallelExecution in Test := false
+  )
+  .settings(
+    libraryDependencies ++= Seq(
+      "io.kamon" %% "kamon-core" % "1.1.5"
+    )
+  )
+
 lazy val root = (project in file("."))
-  .aggregate(rabbitmq, scalaz, fs2, xml, circe, argonaut, example, test, core)
+  .aggregate(rabbitmq, scalaz, fs2, xml, circe, argonaut, example, test, core, kamon)
   .settings(publishArtifact := false)
 
 lazy val readme = scalatex
