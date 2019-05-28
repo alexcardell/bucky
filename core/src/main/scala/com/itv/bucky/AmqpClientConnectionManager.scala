@@ -15,9 +15,9 @@ import scala.language.higherKinds
 import scala.util.Try
 
 private[bucky] case class AmqpClientConnectionManager[F[_]](
-                                                             amqpConfig: AmqpClientConfig,
-                                                             publishChannel: Channel[F],
-                                                             pendingConfirmListener: PendingConfirmListener[F])(implicit F: ConcurrentEffect[F], cs: ContextShift[F], t: Timer[F])
+    amqpConfig: AmqpClientConfig,
+    publishChannel: Channel[F],
+    pendingConfirmListener: PendingConfirmListener[F])(implicit F: ConcurrentEffect[F], cs: ContextShift[F], t: Timer[F])
     extends StrictLogging {
 
   private def runWithChannelSync[T](action: F[T]): F[T] =
@@ -29,10 +29,10 @@ private[bucky] case class AmqpClientConnectionManager[F[_]](
 
   def publish(cmd: PublishCommand): F[Unit] =
     for {
-      _ <- cs.shift
+      _           <- cs.shift
       deliveryTag <- Ref.of[F, Option[Long]](None)
+      signal      <- Deferred[F, Boolean]
       _ <- (for {
-        signal <- Deferred[F, Boolean]
         _ <- runWithChannelSync {
           for {
             nextPublishSeq <- publishChannel.getNextPublishSeqNo
@@ -41,7 +41,9 @@ private[bucky] case class AmqpClientConnectionManager[F[_]](
             _              <- publishChannel.publish(nextPublishSeq, cmd)
           } yield ()
         }
+        _ <- F.delay(logger.error(s"Mega something"))
         _ <- signal.get.ifM(F.unit, F.raiseError[Unit](new RuntimeException("Failed to publish msg.")))
+        _ <- F.delay(logger.error(s"Mega something 222222"))
       } yield ())
         .timeout(amqpConfig.publishingTimeout)
         .recoverWith {
@@ -59,13 +61,13 @@ private[bucky] case class AmqpClientConnectionManager[F[_]](
 
   def registerConsumer(channel: Channel[F], queueName: QueueName, handler: Handler[F, Delivery], onFailure: ConsumeAction): F[Unit] =
     for {
-      _ <- cs.shift
+      _           <- cs.shift
       consumerTag <- F.delay(ConsumerTag.create(queueName))
-      _ <- F.delay(logger.debug("Registering consumer for queue: {} with tag {}.", queueName.value, consumerTag.value))
-      _ <- channel.basicQos(amqpConfig.prefetchCount)
-      _ <- channel.registerConsumer(handler, onFailure, queueName, consumerTag, cs)
-      _ <- F.delay(logger.debug("Consumer for queue: {} with tag {} was successfully registered.", queueName.value, consumerTag.value))
-      _ <- F.delay(logger.debug("Successfully registered consumer for queue: {} with tag.", queueName.value), consumerTag.value)
+      _           <- F.delay(logger.debug("Registering consumer for queue: {} with tag {}.", queueName.value, consumerTag.value))
+      _           <- channel.basicQos(amqpConfig.prefetchCount)
+      _           <- channel.registerConsumer(handler, onFailure, queueName, consumerTag, cs)
+      _           <- F.delay(logger.debug("Consumer for queue: {} with tag {} was successfully registered.", queueName.value, consumerTag.value))
+      _           <- F.delay(logger.debug("Successfully registered consumer for queue: {} with tag.", queueName.value), consumerTag.value)
     } yield ()
 
   def declare(declarations: Iterable[Declaration]): F[Unit] = publishChannel.runDeclarations(declarations)

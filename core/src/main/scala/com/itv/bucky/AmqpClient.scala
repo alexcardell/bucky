@@ -17,9 +17,7 @@ trait AmqpClient[F[_]] {
   def declare(declarations: Declaration*): F[Unit]
   def declare(declarations: Iterable[Declaration]): F[Unit]
   def publisher(): Publisher[F, PublishCommand]
-  def registerConsumer(queueName: QueueName,
-                       handler: Handler[F, Delivery],
-                       exceptionalAction: ConsumeAction = DeadLetter): Resource[F, Unit]
+  def registerConsumer(queueName: QueueName, handler: Handler[F, Delivery], exceptionalAction: ConsumeAction = DeadLetter): Resource[F, Unit]
   def isConnectionOpen: F[Boolean]
 }
 
@@ -28,53 +26,50 @@ object AmqpClient extends StrictLogging {
   private def createChannel[F[_]](connection: RabbitConnection)(implicit F: Sync[F], cs: ContextShift[F]): Resource[F, RabbitChannel] = {
     val make =
       F.delay {
-        logger.info(s"Starting Channel")
-        val channel = connection.createChannel()
-        channel.addShutdownListener(new ShutdownListener {
-          override def shutdownCompleted(cause: ShutdownSignalException): Unit = logger.warn(s"Channel shut down", cause)
-        })
-        channel
-      }
+          logger.info(s"Starting Channel")
+          val channel = connection.createChannel()
+          channel.addShutdownListener(logger.warn(s"Channel shut down", _))
+          channel
+        }
         .attempt
         .flatTap {
-          case Right(_) =>
-            F.delay(logger.info(s"Channel has been started successfully!"))
-          case Left(exception) =>
-            F.delay(logger.error(s"Failure when starting Channel because ${exception.getMessage}", exception))
+          case Right(_)        => F.delay(logger.info(s"Channel has been started successfully!"))
+          case Left(exception) => F.delay(logger.error(s"Failure when starting Channel because ${exception.getMessage}", exception))
         }
         .rethrow
 
     Resource.make(cs.shift.flatMap(_ => make))(channel => F.delay(channel.close()))
   }
 
-  private def createConnection[F[_]](config: AmqpClientConfig)(implicit F: Sync[F], cs: ContextShift[F], executionContext: ExecutionContext): Resource[F, RabbitConnection] = {
+  private def createConnection[F[_]](
+      config: AmqpClientConfig)(implicit F: Sync[F], cs: ContextShift[F], executionContext: ExecutionContext): Resource[F, RabbitConnection] = {
     val make =
       F.delay {
-        logger.info(s"Starting AmqpClient")
-        val connectionFactory = new ConnectionFactory()
-        connectionFactory.setHost(config.host)
-        connectionFactory.setPort(config.port)
-        connectionFactory.setUsername(config.username)
-        connectionFactory.setPassword(config.password)
-        connectionFactory.setAutomaticRecoveryEnabled(config.networkRecoveryInterval.isDefined)
-        connectionFactory.setSharedExecutor(executionContext match {
-          case null => throw null
-          case eces: ExecutionContextExecutorService => eces
-          case other => new AbstractExecutorService with ExecutionContextExecutorService {
-            override def prepare(): ExecutionContext = other
-            override def isShutdown = false
-            override def isTerminated = false
-            override def shutdown() = ()
-            override def shutdownNow() = Collections.emptyList[Runnable]
-            override def execute(runnable: Runnable): Unit = other execute runnable
-            override def reportFailure(t: Throwable): Unit = other reportFailure t
-            override def awaitTermination(length: Long,unit: TimeUnit): Boolean = false
-          }
-        })
+          logger.info(s"Starting AmqpClient")
+          val connectionFactory = new ConnectionFactory()
+          connectionFactory.setHost(config.host)
+          connectionFactory.setPort(config.port)
+          connectionFactory.setUsername(config.username)
+          connectionFactory.setPassword(config.password)
+          connectionFactory.setAutomaticRecoveryEnabled(config.networkRecoveryInterval.isDefined)
+          connectionFactory.setSharedExecutor(executionContext match {
+            case null                                  => throw null
+            case eces: ExecutionContextExecutorService => eces
+            case other => new AbstractExecutorService with ExecutionContextExecutorService {
+                override def prepare(): ExecutionContext                             = other
+                override def isShutdown                                              = false
+                override def isTerminated                                            = false
+                override def shutdown()                                              = ()
+                override def shutdownNow()                                           = Collections.emptyList[Runnable]
+                override def execute(runnable: Runnable): Unit                       = other execute runnable
+                override def reportFailure(t: Throwable): Unit                       = other reportFailure t
+                override def awaitTermination(length: Long, unit: TimeUnit): Boolean = false
+              }
+          })
         config.networkRecoveryInterval.map(_.toMillis.toInt).foreach(connectionFactory.setNetworkRecoveryInterval)
-        config.virtualHost.foreach(connectionFactory.setVirtualHost)
-        connectionFactory.newConnection()
-      }
+          config.virtualHost.foreach(connectionFactory.setVirtualHost)
+          connectionFactory.newConnection()
+        }
         .attempt
         .flatTap {
           case Right(_) =>
@@ -87,24 +82,28 @@ object AmqpClient extends StrictLogging {
     Resource.make(cs.shift.flatMap(_ => make))(connection => F.delay(connection.close()))
   }
 
-  def apply[F[_]](config: AmqpClientConfig)(implicit F: ConcurrentEffect[F], cs: ContextShift[F], t: Timer[F], executionContext: ExecutionContext): Resource[F, AmqpClient[F]] =
+  def apply[F[_]](config: AmqpClientConfig)(implicit F: ConcurrentEffect[F],
+                                            cs: ContextShift[F],
+                                            t: Timer[F],
+                                            executionContext: ExecutionContext): Resource[F, AmqpClient[F]] =
     for {
       connection <- createConnection(config)
       publishChannel = createChannel(connection).map(Channel.apply[F])
-      buildChannel = () => createChannel(connection).map(Channel.apply[F])
+      buildChannel   = () => createChannel(connection).map(Channel.apply[F])
       client <- apply[F](config, buildChannel, publishChannel)
     } yield client
 
-  def apply[F[_]](config: AmqpClientConfig,
-                  buildChannel: () => Resource[F, Channel[F]],
-                  publishChannel: Resource[F, Channel[F]])(implicit F: ConcurrentEffect[F], cs: ContextShift[F], t: Timer[F], executionContext: ExecutionContext): Resource[F, AmqpClient[F]] =
+  def apply[F[_]](config: AmqpClientConfig, buildChannel: () => Resource[F, Channel[F]], publishChannel: Resource[F, Channel[F]])(
+      implicit F: ConcurrentEffect[F],
+      cs: ContextShift[F],
+      t: Timer[F],
+      executionContext: ExecutionContext): Resource[F, AmqpClient[F]] =
     publishChannel.flatMap { channel =>
       val make =
         for {
-          _ <- cs.shift
+          _                 <- cs.shift
           connectionManager <- AmqpClientConnectionManager(config, channel)
-        }
-          yield mkClient(buildChannel, connectionManager)
+        } yield mkClient(buildChannel, connectionManager)
       Resource.make(make)(_ => F.unit)
     }
 
@@ -118,9 +117,7 @@ object AmqpClient extends StrictLogging {
           _ <- connectionManager.publish(cmd)
         } yield ()
       }
-      override def registerConsumer(queueName: QueueName,
-                                    handler: Handler[F, Delivery],
-                                    exceptionalAction: ConsumeAction): Resource[F, Unit] =
+      override def registerConsumer(queueName: QueueName, handler: Handler[F, Delivery], exceptionalAction: ConsumeAction): Resource[F, Unit] =
         buildChannel().evalMap {
           connectionManager.registerConsumer(_, queueName, handler, exceptionalAction)
         }

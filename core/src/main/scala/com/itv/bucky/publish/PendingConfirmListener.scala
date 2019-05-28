@@ -12,7 +12,8 @@ import scala.language.higherKinds
 import scala.collection.immutable.TreeMap
 
 private[bucky] case class PendingConfirmListener[F[_]](pendingConfirmations: Ref[F, TreeMap[Long, Deferred[F, Boolean]]])(
-    implicit F: ConcurrentEffect[F])
+    implicit F: ConcurrentEffect[F],
+    cs: ContextShift[F])
     extends ConfirmListener
     with StrictLogging {
 
@@ -31,11 +32,11 @@ private[bucky] case class PendingConfirmListener[F[_]](pendingConfirmations: Ref
       toComplete <- pop(deliveryTag, multiple)
       _          <- F.delay(logger.info("Received ack for delivery tag: {} and multiple: {}", deliveryTag, multiple))
       _          <- toComplete.traverse(_.complete(true))
-    } yield ()).toIO
-      .unsafeRunSync()
+    } yield ()).toIO.unsafeRunSync()
 
   override def handleNack(deliveryTag: Long, multiple: Boolean): Unit =
     (for {
+      _          <- cs.shift
       toComplete <- pop(deliveryTag, multiple)
       _          <- F.delay(logger.error("Received Nack for delivery tag: {} and multiple: {}", deliveryTag, multiple))
       _          <- toComplete.traverse(_.complete(false))

@@ -1,15 +1,15 @@
 package com.itv.bucky.kamonSupport
 import java.time.Instant
 
-import cats.effect.{ConcurrentEffect, Resource}
+import cats.effect.{ConcurrentEffect, IO, Resource}
 import com.itv.bucky.consume._
 import com.itv.bucky.{AmqpClient, Handler, Publisher, QueueName, decl}
 import cats.implicits._
 import cats._
 import kamon.{Kamon, context}
 import kamon.context.Context
-import kamon.trace.Span
 import kamon.trace.Tracer.SpanBuilder
+import kamon.trace.{Span, SpanCustomizer}
 
 import scala.language.higherKinds
 import scala.util.Try
@@ -29,30 +29,30 @@ object KamonSupport {
         val originalPublisher: Publisher[F, PublishCommand] = amqpClient.publisher()
         cmd: PublishCommand =>
           (for {
-            start         <- F.delay(Kamon.clock().instant())
-            ctx           <- F.delay(Kamon.currentContext())
-            operationName <- s"bucky.publish.exchange.${cmd.exchange.value}".pure[F]
-            spanBuilder   <- F.delay(spanFor(start, operationName, ctx, cmd))
-            headers       <- headersFrom(ctx).pure[F]
-            span          <- F.delay(spanBuilder.start())
-            scope         <- F.delay(Kamon.storeContext(ctx.withKey(Span.ContextKey, span)))
+            context       <- F.delay(Kamon.currentContext())
+            //clientSpan    <- F.delay(context.get(Span.ContextKey))
+            //operationName <- s"bucky.publish.exchange.${cmd.exchange.value}".pure[F]
+            headers       <- headersFrom(context).pure[F]
+            //spanBuilder   <- F.delay(spanFor(operationName, clientSpan, cmd))
+            //span          <- F.delay(context.get(SpanCustomizer.ContextKey).customize(spanBuilder).start())
+            //newCtx        <- F.delay(context.withKey(Span.ContextKey, span))
+            //scope         <- F.delay(Kamon.storeContext(newCtx))
             newCmd        <- cmd.copy(basicProperties = cmd.basicProperties.copy(headers = cmd.basicProperties.headers ++ headers)).pure[F]
             result        <- originalPublisher(newCmd).attempt
-            end           <- F.delay(Kamon.clock().instant())
-            _ <- F.delay(
-              result
-                .leftMap(t => span.addError("bucky.publish.failure", t).tag("result", "error"))
-                .map(_ => span.tag("result", "success")))
-            _ <- F.delay(span.finish(end))
-            _ <- F.delay(scope.close())
+            //_             <- F.delay(Kamon.storeContext(context))
+            //_ <- F.delay(
+            //  result
+            //    .leftMap(t => clientSpan.addError("bucky.publish.failure", t).tag("result", "error"))
+            //    .map(_ => clientSpan.tag("result", "success")))
+            //_ <- F.delay(scope.close())
+            //_ <- F.delay(span.finish())
           } yield result).rethrow
       }
 
-      private def spanFor(now: Instant, operationName: String, ctx: Context, cmd: PublishCommand): SpanBuilder = {
+      private def spanFor(operationName: String, clientSpan: Span, cmd: PublishCommand): SpanBuilder = {
         val span = Kamon
           .buildSpan(operationName)
-          .asChildOf(ctx.get(Span.ContextKey))
-          .withFrom(now)
+          .asChildOf(clientSpan)
           .withMetricTag("span.kind", "bucky.publish")
           .withMetricTag("component", "bucky")
           .withMetricTag("exchange", cmd.exchange.value)
